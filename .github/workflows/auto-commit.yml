@@ -1,8 +1,11 @@
-name: Auto Commit with Weather & Motivation
+name: Daily Auto Commit
 
 on:
+  # 每天运行一次 - 北京时间 9:00（UTC 1:00）
   schedule:
-    - cron: '* * * * *'  # 每分钟触发
+    - cron: '0 1 * * *'  # UTC 1:00 = 北京时间 9:00
+
+  # 允许手动触发测试
   workflow_dispatch:
 
 jobs:
@@ -12,73 +15,20 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 设置为北京时间
         run: |
           sudo ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 
-      - name: 生成或读取今日提交时间计划
-        id: plan
+      - name: 配置 Git
         run: |
-          mkdir -p .github
+          git config --local user.name "${{ github.actor }}"
+          git config --local user.email "${{ github.actor }}@users.noreply.github.com"
 
-          # ✅ 清理 2 天前的旧文件
-          find .github -type f \( -name "auto_commit_plan_*.txt" -o -name "auto_commit_done_*.txt" \) -mtime +2 -delete
-
-          TODAY=$(date +'%Y-%m-%d')
-          PLAN_FILE=".github/auto_commit_plan_$TODAY.txt"
-
-          if [[ -f "$PLAN_FILE" ]]; then
-            echo "已存在今日计划："
-            cat "$PLAN_FILE"
-          else
-            COUNT=$((RANDOM % 4 + 2))  # 2~5 次提交
-            TIMES=()
-            while [ ${#TIMES[@]} -lt $COUNT ]; do
-              HOUR=$((RANDOM % 15 + 8))  # 8~22 点
-              MIN=$((RANDOM % 60))
-              TIME=$(printf "%02d:%02d" $HOUR $MIN)
-              if [[ ! " ${TIMES[*]} " =~ " $TIME " ]]; then
-                TIMES+=("$TIME")
-                echo "$TIME" >> "$PLAN_FILE"
-              fi
-            done
-            echo "今日提交计划：${TIMES[*]}"
-          fi
-
-      - name: 检查当前时间是否匹配
-        id: check
-        run: |
-          # ✅ 加锁防并发
-          LOCK_FILE="/tmp/auto_commit.lock"
-          exec 200>"$LOCK_FILE"
-          flock -n 200 || exit 0
-
-          TODAY=$(date +'%Y-%m-%d')
-          NOW=$(date +'%H:%M')
-          PLAN_FILE=".github/auto_commit_plan_$TODAY.txt"
-          DONE_FILE=".github/auto_commit_done_$TODAY.txt"
-
-          mkdir -p .github
-          touch "$DONE_FILE"
-
-          SHOULD_RUN=false
-
-          if grep -Fxq "$NOW" "$PLAN_FILE" && ! grep -Fxq "$NOW" "$DONE_FILE"; then
-            echo "$NOW" >> "$DONE_FILE"
-            echo "匹配到计划时间 $NOW，准备执行提交"
-            SHOULD_RUN=true
-          else
-            echo "当前时间 $NOW 不在计划内或已执行过"
-          fi
-
-          echo "should_run=$SHOULD_RUN" >> $GITHUB_OUTPUT
-
-      - name: 退出非提交时间
-        if: steps.check.outputs.should_run != 'true'
-        run: echo "不是提交时间，退出任务"
-
-      - name: 获取重庆实时天气（Open-Meteo）
+      - name: 获取重庆实时天气
         id: weather
         run: |
           LAT=29.56301
@@ -100,17 +50,20 @@ jobs:
           echo "weather_desc=$DESC" >> $GITHUB_OUTPUT
           echo "weather_temp=$TEMP°C" >> $GITHUB_OUTPUT
 
-      - name: 配置 Git
+      - name: 执行每日提交任务
         run: |
-          git config --global user.name "${{ github.actor }}"
-          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+          echo "======================================"
+          echo "开始每日自动提交任务"
+          echo "日期: $(date '+%Y-%m-%d')"
+          echo "======================================"
+          echo ""
 
-      - name: 写入日志并提交
-        run: |
-          TODAY=$(date '+%Y-%m-%d（%A）')
-          TIME=$(date '+%H:%M:%S')
-          LUNAR="农历：$(date +'%m')月$(date +'%d')日"
+          # 随机确定今天提交的次数（1-10次）
+          NUM_COMMITS=$((RANDOM % 10 + 1))
+          echo "📝 今天计划提交次数: $NUM_COMMITS"
+          echo ""
 
+          # 励志语数组
           MSGS=(
             "🌟 Keep going, everything you need will come to you."
             "💪 Believe in yourself!"
@@ -120,32 +73,97 @@ jobs:
             "🐱 Stay curious."
             "🧠 Learn something new today."
             "✨ You are unstoppable."
+            "💯 Progress, not perfection."
+            "🎯 Stay focused and never give up."
           )
-          MSG="${MSGS[$RANDOM % ${#MSGS[@]}]}"
 
-          echo "📅 $TODAY" >> log.txt
-          echo "⏰ $TIME" >> log.txt
-          echo "🗓️ $LUNAR" >> log.txt
-          echo "⛅ 天气：${{ steps.weather.outputs.weather_desc }}，${{ steps.weather.outputs.weather_temp }}" >> log.txt
-          echo "$MSG" >> log.txt
+          # 提交信息数组
+          COMMIT_MSGS=(
+            "Update code"
+            "Fix bug"
+            "Add feature"
+            "Improve performance"
+            "Refactor code"
+            "Update documentation"
+            "Fix typo"
+            "Add comments"
+            "Optimize code"
+            "Clean up code"
+          )
 
-          COUNT_FILE=".github/commit_count.txt"
-          if [ -f "$COUNT_FILE" ]; then
-            COUNT=$(cat $COUNT_FILE)
-          else
-            COUNT=0
+          # 创建 log.txt（如果不存在）
+          if [ ! -f "log.txt" ]; then
+            echo "# Auto Commit Log" > log.txt
+            echo "Started on: $(date '+%Y-%m-%d %H:%M:%S')" >> log.txt
+            echo "========================================" >> log.txt
+            echo "" >> log.txt
           fi
-          COUNT=$((COUNT + 1))
-          echo "$COUNT" > $COUNT_FILE
-          echo "🔢 已提交 $COUNT 次" >> log.txt
-          echo "----------------------------------------" >> log.txt
 
-          git add log.txt $COUNT_FILE
-          git commit -m "📅 Auto commit on $(date '+%Y-%m-%d')" || echo "无变化可提交"
+          # 执行提交
+          SUCCESS_COUNT=0
+
+          for i in $(seq 1 $NUM_COMMITS); do
+            echo "[$i/$NUM_COMMITS] 准备提交..."
+
+            # 随机选择提交信息和励志语
+            COMMIT_MSG="${COMMIT_MSGS[$RANDOM % ${#COMMIT_MSGS[@]}]}"
+            MOTIVATE_MSG="${MSGS[$RANDOM % ${#MSGS[@]}]}"
+
+            # 生成提交内容
+            TODAY=$(date '+%Y-%m-%d（%A）')
+            TIME=$(date '+%H:%M:%S')
+            LUNAR="农历：$(date +'%m')月$(date +'%d')日"
+
+            # 写入日志
+            echo "📅 $TODAY" >> log.txt
+            echo "⏰ $TIME" >> log.txt
+            echo "🗓️ $LUNAR" >> log.txt
+            echo "⛅ 天气：${{ steps.weather.outputs.weather_desc }}，${{ steps.weather.outputs.weather_temp }}" >> log.txt
+            echo "$MOTIVATE_MSG" >> log.txt
+
+            # 更新提交计数
+            COUNT_FILE=".github/commit_count.txt"
+            if [ -f "$COUNT_FILE" ]; then
+              COUNT=$(cat $COUNT_FILE)
+            else
+              COUNT=0
+            fi
+            COUNT=$((COUNT + 1))
+            echo "$COUNT" > $COUNT_FILE
+            echo "🔢 第 $COUNT 次提交" >> log.txt
+            echo "----------------------------------------" >> log.txt
+
+            # Git 提交
+            git add log.txt $COUNT_FILE
+
+            if git commit -m "📅 $COMMIT_MSG - $(date '+%Y-%m-%d')"; then
+              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+              echo "✅ 成功: $COMMIT_MSG"
+            else
+              echo "⚠️  提交失败"
+            fi
+
+            # 除了最后一次，其他提交后都等待一段随机时间（30-180秒）
+            if [ $i -lt $NUM_COMMITS ]; then
+              WAIT_TIME=$((RANDOM % 151 + 30))
+              echo "⏳ 等待 ${WAIT_TIME} 秒后继续..."
+              sleep $WAIT_TIME
+            fi
+
+            echo ""
+          done
+
+          echo "======================================"
+          echo "✅ 提交任务完成!"
+          echo "成功: $SUCCESS_COUNT/$NUM_COMMITS"
+          echo "完成时间: $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "======================================"
 
       - name: 推送代码
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "📤 正在推送到远程仓库..."
           git remote set-url origin https://x-access-token:$TOKEN@github.com/${{ github.repository }}.git
           git push origin HEAD:${{ github.ref_name }}
+          echo "✅ 推送完成!"
