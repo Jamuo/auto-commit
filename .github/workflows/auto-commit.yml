@@ -28,11 +28,20 @@ jobs:
           git config --local user.name "${{ github.actor }}"
           git config --local user.email "${{ github.actor }}@users.noreply.github.com"
 
-      - name: 获取重庆实时天气
+      - name: 获取当前位置天气
         id: weather
         run: |
-          LAT=29.56301
-          LON=106.55156
+          # 根据IP地址自动获取地理位置
+          echo "🌍 正在获取当前位置..."
+          LOCATION=$(curl -s "https://ipapi.co/json/")
+          LAT=$(echo "$LOCATION" | jq -r '.latitude')
+          LON=$(echo "$LOCATION" | jq -r '.longitude')
+          CITY=$(echo "$LOCATION" | jq -r '.city')
+          COUNTRY=$(echo "$LOCATION" | jq -r '.country_name')
+
+          echo "📍 位置: $CITY, $COUNTRY (纬度: $LAT, 经度: $LON)"
+
+          # 获取天气数据
           DATA=$(curl -s "https://api.open-meteo.com/v1/forecast?latitude=$LAT&longitude=$LON&current=temperature_2m,weathercode&timezone=auto")
           TEMP=$(echo "$DATA" | jq '.current.temperature_2m')
           CODE=$(echo "$DATA" | jq '.current.weathercode')
@@ -49,6 +58,7 @@ jobs:
 
           echo "weather_desc=$DESC" >> $GITHUB_OUTPUT
           echo "weather_temp=$TEMP°C" >> $GITHUB_OUTPUT
+          echo "weather_location=$CITY, $COUNTRY" >> $GITHUB_OUTPUT
 
       - name: 执行每日提交任务
         run: |
@@ -118,6 +128,7 @@ jobs:
             echo "📅 $TODAY" >> log.txt
             echo "⏰ $TIME" >> log.txt
             echo "🗓️ $LUNAR" >> log.txt
+            echo "📍 位置：${{ steps.weather.outputs.weather_location }}" >> log.txt
             echo "⛅ 天气：${{ steps.weather.outputs.weather_desc }}，${{ steps.weather.outputs.weather_temp }}" >> log.txt
             echo "$MOTIVATE_MSG" >> log.txt
 
